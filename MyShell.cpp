@@ -16,6 +16,7 @@
 #define MAX_SIZE_ARGUMENTS 30
 #define MAX_ENV_PATH 128
 #define MAX_PATH_LENGTH 1024
+#define MAX_BACKGROUND_COMMAND 256
 
 using namespace std;
 
@@ -30,18 +31,46 @@ int parseEnvironmentPath(string *directories);
 string validateCommand(int numb_of_directories, string *directories, string command);
 void cleanArgument(int numb, string *argument);
 void reArrangeArgument(int &numb, string *arguments);
+void reArrangeBackgroundList(int &numb, string *list, int pos);
+void reArrangePIDList(int numb, pid_t *list, int pos);
 
 void reArrangeArgument(int &numb, string *arguments) {
-	string temp;
+	int i;
 	if (numb == 1) {
 		arguments[0] = "";
 	}
 	else {
-		for (int i = 0; i < numb - 1; i++) {
+		for (i = 0; i < numb - 1; i++) {
 			arguments[i] = arguments[i + 1];
 		}
+		arguments[i] = "";
 	}
 	numb -= 1;
+}
+
+void reArrangeBackgroundList(int &numb, string *list, int pos) {
+	if (numb == 1) {
+		list[0] = "";
+	}
+	else {
+		for (pos; pos < numb - 1; pos++) {
+			list[pos] = list[pos + 1];
+		}
+		list[pos] = "";
+	}
+	numb -= 1;
+}
+
+void reArrangePIDList(int numb, pid_t *list, int pos) {
+	if (numb == 1) {
+		list[0] = -1;
+	}
+	else {
+		for (pos; pos < numb - 1; pos++) {
+			list[pos] = list[pos + 1];
+		}
+		list[pos] = -1;
+	}
 }
 
 int main(int argc, char * argv[]) {
@@ -50,16 +79,22 @@ int main(int argc, char * argv[]) {
 	string filename;		// string variable to save filename in case of IO redirection
 	string arguments[MAX_SIZE_ARGUMENTS];	// string array that stores arguments comes along with Linux shell command
 	string environment_directories[MAX_ENV_PATH];	// string array that stores Environment Path
+	string bg_command[MAX_BACKGROUND_COMMAND];
 
 	int numb_of_arguments = 0;		
 	int numb_of_directories = 0;
+	int numb_of_background_command = 0;
+
 	int io_redirection_opt = 0;		// IO redirection option; 1- "<" read from file -> output to screen, 2- ">" redirect input to file
+	int fd;			// file descriptor	
+	int status;
 
 	bool interactive = true;	// boolean variable to check whether command running in background
 	bool error = false;			// boolean variable to check background command is valid
-	pid_t pid;					
-	int fd;			// file descriptor	
 
+	pid_t pid;	
+	pid_t bg_pid[128];
+	
 	numb_of_directories = parseEnvironmentPath(environment_directories);
 
 	do {
@@ -97,18 +132,34 @@ int main(int argc, char * argv[]) {
 						interactive = false;
 						command = arguments[0];
 						reArrangeArgument(numb_of_arguments, arguments);
+						bg_command[numb_of_background_command] = command + " ";
+						for (int i = 0; i < numb_of_arguments; i++) {
+							if (i < numb_of_arguments - 1) {
+								bg_command[numb_of_background_command] += arguments[i] + " ";
+							}	
+							else {
+								bg_command[numb_of_background_command] += arguments[i];
+							}
+						}
+						numb_of_background_command++;
 					}
 				}
-				else if (inputLine == "fg") {
-					interactive = true;
-					command = "kill";
-					pid_t bg_pid = getpid();
-					arguments[0] = to_string(bg_pid);
-					numb_of_arguments = 1;
+				else if (inputLine == "processes") {
+					for (int i = 0; i < numb_of_background_command; i++) {
+						if (bg_pid[i] > 0) {
+							pid = waitpid(bg_pid[i], &status, WNOHANG);
+							if (pid == 0)
+								cout << bg_pid[i] << " " << bg_command[i] << endl;
+							else {
+								reArrangePIDList(numb_of_background_command, bg_pid, i);
+								reArrangeBackgroundList(numb_of_background_command, bg_command, i);
+							}
+						}
+					}
+					error = true;
 				}
 				if (!error){
 					string path = validateCommand(numb_of_directories, environment_directories, command);
-
 					char *argv[numb_of_arguments + 2];
 					argv[0] = const_cast<char*>(path.c_str());
 					for (int i = 1; i < numb_of_arguments + 1; i++) {
@@ -149,6 +200,9 @@ int main(int argc, char * argv[]) {
 					else if (pid > 0) {
 						if (interactive)
 							while (wait(0) != pid);
+						else {
+							bg_pid[numb_of_background_command - 1] = pid;
+						}		
 					}
 					else {
 						cout << "Fork failed" << endl;
@@ -156,8 +210,8 @@ int main(int argc, char * argv[]) {
 					}
 				}	
 			}
-			//	while(wait(0) != pid);
 			error = false;
+			interactive = true;
 			cleanArgument(numb_of_arguments, arguments);
 			filename = "";
 			io_redirection_opt = 0;
@@ -273,7 +327,6 @@ int parseEnvironmentPath(string *directories) {
 string validateCommand(int numb_of_directories, string *directories, string command) {
 	string pathname = "";
 	string invalid = "Invalid command";
-
 	for (int i = 0; i < numb_of_directories; i++) {
 		pathname = directories[i] + "/" + command;
 		if (!access(pathname.c_str(), X_OK))
@@ -288,3 +341,5 @@ void cleanArgument(int numb, string *argument) {
 		argument[i] = "";
 	}
 }
+
+
