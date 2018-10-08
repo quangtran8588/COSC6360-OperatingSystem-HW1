@@ -20,6 +20,7 @@
 
 using namespace std;
 
+void executeCommand(int numb_of_directories, int numb_of_arguments,int numb_of_background_command, int fd, int io_redirection_opt, string *environment_directories, string *arguments, string command, string filename, pid_t pid, pid_t *bg_pid, bool interactive);
 int parseInputLine(string inputLine, string *command, string *filename, string *arguments);
 int split(string input, string *left, string *right, char delimiter);
 int checkIORedirection(string inputLine);
@@ -33,45 +34,6 @@ void cleanArgument(int numb, string *argument);
 void reArrangeArgument(int &numb, string *arguments);
 void reArrangeBackgroundList(int &numb, string *list, int pos);
 void reArrangePIDList(int numb, pid_t *list, int pos);
-
-void reArrangeArgument(int &numb, string *arguments) {
-	int i;
-	if (numb == 1) {
-		arguments[0] = "";
-	}
-	else {
-		for (i = 0; i < numb - 1; i++) {
-			arguments[i] = arguments[i + 1];
-		}
-		arguments[i] = "";
-	}
-	numb -= 1;
-}
-
-void reArrangeBackgroundList(int &numb, string *list, int pos) {
-	if (numb == 1) {
-		list[0] = "";
-	}
-	else {
-		for (pos; pos < numb - 1; pos++) {
-			list[pos] = list[pos + 1];
-		}
-		list[pos] = "";
-	}
-	numb -= 1;
-}
-
-void reArrangePIDList(int numb, pid_t *list, int pos) {
-	if (numb == 1) {
-		list[0] = -1;
-	}
-	else {
-		for (pos; pos < numb - 1; pos++) {
-			list[pos] = list[pos + 1];
-		}
-		list[pos] = -1;
-	}
-}
 
 int main(int argc, char * argv[]) {
 	string inputLine;		// string variable to save string input from keyboard
@@ -101,7 +63,15 @@ int main(int argc, char * argv[]) {
 		cout << "MyShell: ";
 		getline(cin, inputLine);
 
-		if (inputLine == "exit") { exit(0); }
+		if (inputLine == "exit") {
+			for (int i = 0; i < numb_of_background_command; i++) {
+				command = "kill";
+				arguments[0] = to_string(bg_pid[i]);
+				numb_of_arguments = 1;
+				executeCommand(numb_of_directories, numb_of_arguments, numb_of_background_command, fd, io_redirection_opt, environment_directories, arguments, command, filename, pid, bg_pid, interactive);
+			}
+				exit(0); 
+		}
 		else {
 			io_redirection_opt = parseInputLine(inputLine, &command, &filename, arguments);
 			for (int i = 0; i < MAX_SIZE_ARGUMENTS; i++) {
@@ -116,10 +86,6 @@ int main(int argc, char * argv[]) {
 					int ret_val = chdir(arguments[0].c_str());
 					if (ret_val == -1)
 						cout << "Error! No such file or directory" << endl;
-					char *ptrPath;
-					char currentPath[1024];
-					ptrPath = getcwd(currentPath, 1024);
-					cout << "Current Directory: " << string(currentPath) << endl;
 				}
 			}
 			else {
@@ -159,55 +125,7 @@ int main(int argc, char * argv[]) {
 					error = true;
 				}
 				if (!error){
-					string path = validateCommand(numb_of_directories, environment_directories, command);
-					char *argv[numb_of_arguments + 2];
-					argv[0] = const_cast<char*>(path.c_str());
-					for (int i = 1; i < numb_of_arguments + 1; i++) {
-						argv[i] = const_cast<char*>(arguments[i - 1].c_str());
-					}
-					argv[numb_of_arguments + 1] = NULL;
-
-					pid = fork();
-					if (pid == 0) {
-						int err;
-						if (path != "Invalid command") {
-							if (io_redirection_opt != 0) {
-								if (io_redirection_opt == 1) {
-									fd = open(filename.c_str(), O_RDONLY);
-									close(0);
-									dup(fd);
-									close(fd);
-								}
-								else {
-									fd = open(filename.c_str(), O_WRONLY | O_CREAT, 0644);
-									close(1);
-									dup(fd);
-									close(fd);
-								}
-							}
-							if (numb_of_arguments != 0)
-								err = execv(path.c_str(), argv);
-							else
-								err = execl(path.c_str(), path.c_str(), NULL);
-							if (err == -1)
-								cout << "cannot execute" << endl;
-							_exit(1);
-						}
-						else
-							cout << "Command " << command << " not found" << endl;
-						_exit(1);
-					}
-					else if (pid > 0) {
-						if (interactive)
-							while (wait(0) != pid);
-						else {
-							bg_pid[numb_of_background_command - 1] = pid;
-						}		
-					}
-					else {
-						cout << "Fork failed" << endl;
-						_exit(1);
-					}
+					executeCommand(numb_of_directories, numb_of_arguments,numb_of_background_command, fd, io_redirection_opt, environment_directories, arguments,command, filename, pid, bg_pid, interactive);
 				}	
 			}
 			error = false;
@@ -220,6 +138,58 @@ int main(int argc, char * argv[]) {
 		}
 	} while (1);
 	return 0;
+}
+
+void executeCommand(int numb_of_directories, int numb_of_arguments,int numb_of_background_command, int fd, int io_redirection_opt, string *environment_directories, string *arguments, string command, string filename, pid_t pid, pid_t *bg_pid, bool interactive) {
+	string path = validateCommand(numb_of_directories, environment_directories, command);
+	char *argv[numb_of_arguments + 2];
+	argv[0] = const_cast<char*>(path.c_str());
+	for (int i = 1; i < numb_of_arguments + 1; i++) {
+		argv[i] = const_cast<char*>(arguments[i - 1].c_str());
+	}
+	argv[numb_of_arguments + 1] = NULL;
+
+	pid = fork();
+	if (pid == 0) {
+		int err;
+		if (path != "Invalid command") {
+			if (io_redirection_opt != 0) {
+				if (io_redirection_opt == 1) {
+					fd = open(filename.c_str(), O_RDONLY);
+					close(0);
+					dup(fd);
+					close(fd);
+				}
+				else {
+					fd = open(filename.c_str(), O_WRONLY | O_CREAT, 0644);
+					close(1);
+					dup(fd);
+					close(fd);
+				}
+			}
+			if (numb_of_arguments != 0)
+				err = execv(path.c_str(), argv);
+			else
+				err = execl(path.c_str(), path.c_str(), NULL);
+			if (err == -1)
+				cout << "cannot execute" << endl;
+			_exit(1);
+		}
+		else
+			cout << "Command " << command << " not found" << endl;
+		_exit(1);
+	}
+	else if (pid > 0) {
+		if (interactive)
+			while (wait(0) != pid);
+		else {
+			bg_pid[numb_of_background_command - 1] = pid;
+		}
+	}
+	else {
+		cout << "Fork failed" << endl;
+		_exit(1);
+	}
 }
 
 int parseInputLine(string inputLine, string *command, string *filename, string *arguments) {
@@ -339,6 +309,45 @@ string validateCommand(int numb_of_directories, string *directories, string comm
 void cleanArgument(int numb, string *argument) {
 	for (int i = 0; i < numb; i++) {
 		argument[i] = "";
+	}
+}
+
+void reArrangeArgument(int &numb, string *arguments) {
+	int i;
+	if (numb == 1) {
+		arguments[0] = "";
+	}
+	else {
+		for (i = 0; i < numb - 1; i++) {
+			arguments[i] = arguments[i + 1];
+		}
+		arguments[i] = "";
+	}
+	numb -= 1;
+}
+
+void reArrangeBackgroundList(int &numb, string *list, int pos) {
+	if (numb == 1) {
+		list[0] = "";
+	}
+	else {
+		for (pos; pos < numb - 1; pos++) {
+			list[pos] = list[pos + 1];
+		}
+		list[pos] = "";
+	}
+	numb -= 1;
+}
+
+void reArrangePIDList(int numb, pid_t *list, int pos) {
+	if (numb == 1) {
+		list[0] = -1;
+	}
+	else {
+		for (pos; pos < numb - 1; pos++) {
+			list[pos] = list[pos + 1];
+		}
+		list[pos] = -1;
 	}
 }
 
